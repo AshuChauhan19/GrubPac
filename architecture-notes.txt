@@ -1,0 +1,77 @@
+Architecture Notes - Content Broadcasting System
+===============================================
+
+1. Authentication & RBAC Flow
+-----------------------------
+- JWT (JSON Web Token) is used for stateless authentication.
+- Password hashing is implemented using bcryptjs with 10 salt rounds.
+- Role-Based Access Control (RBAC) is enforced via a middleware (`authorize`).
+- Roles: `principal` and `teacher`.
+- Private routes require a valid Bearer token in the Authorization header.
+
+2. Subject-based System Design
+------------------------------
+- Each content item is tagged with a `subject` (e.g., Maths, Science).
+- The broadcasting logic groups content by subject and rotates them independently.
+- Users can filter live content by subject using query parameters.
+
+3. Upload Handling Approach
+---------------------------
+- `multer` is used for handling multi-part form data (file uploads).
+- Storage: Local storage in the `uploads/` directory.
+- Validation: Only JPG, PNG, and GIF formats are allowed, with a 10MB size limit.
+- File metadata (path, size, type) is stored in the MySQL database.
+- Files are served statically via `/uploads` route.
+
+4. Approval Workflow Design
+---------------------------
+- Lifecycle: `uploaded` (default: pending) -> `approved` or `rejected`.
+- Only users with the `principal` role can review content.
+- Rejection requires a mandatory `rejectionReason`.
+- Approved content stores the `approvedBy` ID and `approvedAt` timestamp.
+
+5. Scheduling/Rotation Logic (VERY IMPORTANT)
+---------------------------------------------
+- Teacher defines `startTime`, `endTime`, and `rotationDuration` (default 5 mins).
+- Eligibility: Content must be `approved` AND `current_time` must be between `startTime` and `endTime`.
+- Rotation:
+  - Valid content items for a specific subject are sorted by creation date.
+  - A total cycle duration is calculated (sum of all `rotationDuration` values).
+  - The "current" active item is determined by calculating the elapsed time in the current cycle:
+    `elapsedInCycle = currentMinuteTimestamp % totalCycleDuration`
+  - This ensures a continuous loop that is synchronized for all students hitting the endpoint.
+  - If no content meets the criteria, the system returns "No content available".
+
+6. Database Design Decisions (MySQL)
+------------------------------------
+- Using MySQL with Sequelize ORM.
+- Models:
+  - `User`: Stores credentials and roles (UUID primary keys).
+  - `Content`: Stores material details, status, scheduling parameters, and local file path.
+- Relationships:
+  - One-to-Many: User (Teacher) -> Content (Uploaded by).
+  - One-to-Many: User (Principal) -> Content (Approved by).
+
+7. Technology Stack
+-------------------
+- Runtime: Node.js (v18+)
+- Framework: Express 5 (ES6 Modules)
+- Database: MySQL
+- ORM: Sequelize
+- Authentication: JWT + Bcryptjs
+
+8. Folder Structure
+-------------------
+- `src/controllers`: Business logic for auth, content, and broadcasting.
+- `src/models`: Sequelize model definitions.
+- `src/routes`: API endpoint definitions (ES6 exports).
+- `src/middlewares`: Auth, RBAC, and Local Upload validation.
+- `src/config`: MySQL/Sequelize connection.
+- `uploads/`: Physical storage for files.
+
+9. Scalability Approach
+-----------------------
+- Caching: Redis could be implemented in the `broadcastController` to cache active content (Currently disabled to keep the setup simple for reviewers).
+- Load Balancing: JWT authentication allows for easy scaling across multiple instances.
+- Database: MySQL can be easily scaled using Read Replicas for the broadcasting API.
+- Cloud Storage: Easily switchable to AWS S3 for distributed environments.
